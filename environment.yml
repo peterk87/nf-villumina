@@ -1,0 +1,23 @@
+name: nf-villumina-1.0dev
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - curl=7.64.1
+  - fastp=0.19.7
+  - fastqc=0.11.8
+  - bbmap=38.22
+  - multiqc=1.7
+  - centrifuge=1.0.4_beta
+  - kraken2=2.0.7_beta
+  - unicycler=0.4.7
+  - shovill=1.0.4
+  - samtools=1.9
+  - python=3.6.7
+  - pip:
+    - screed
+    - attrs
+    - numpy
+    - pandas
+    - filter_classified_reads

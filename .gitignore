@@ -1,0 +1,16 @@
+.nextflow*
+work/
+data/
+results/
+
+.DS_Store
+
+tests/test_data
+
+Untitled.ipynb
+.ipynb_checkpoints
+.ipynb_checkpoints/*
+*.swp
+*.bam
+*.simg
+
