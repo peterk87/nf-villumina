@@ -1,4 +1,4 @@
-name: nf-villumina-1.0dev
+name: nf-villumina-2.0.0
 channels:
   - conda-forge
   - bioconda
@@ -14,10 +14,11 @@ dependencies:
   - unicycler=0.4.7
   - shovill=1.0.4
   - samtools=1.9
-  - python=3.6.7
+  - python=3.8
+  - seqtk
+  - pbgzip
   - pip:
-    - screed
+    - filter_classified_reads=0.2.0
     - attrs
     - numpy
     - pandas
-    - filter_classified_reads
