@@ -5,16 +5,16 @@ channels:
   - defaults
 dependencies:
   - curl=7.64.1
-  - fastp=0.19.7
-  - fastqc=0.11.8
-  - bbmap=38.22
-  - multiqc=1.7
+  - fastp=0.20.0
+  - fastqc=0.11.9
+  - bbmap=38.75
+  - multiqc=1.8
   - centrifuge=1.0.4_beta
-  - kraken2=2.0.7_beta
-  - unicycler=0.4.7
-  - shovill=1.0.4
-  - samtools=1.9
-  - python=3.8
+  - kraken2=2.0.8_beta
+  - unicycler=0.4.8
+  - shovill=1.0.9
+  - samtools=1.10
+  - python=3.6.7
   - seqtk
   - pbgzip
   - pip:
