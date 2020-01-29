@@ -315,7 +315,8 @@ process KRAKEN2 {
 
 process CENTRIFUGE {
   tag "$sample_id"
-  publishDir "${params.outdir}/centrifuge/$sample_id", pattern: "*.tsv", mode: 'copy'
+  publishDir "${params.outdir}/centrifuge/results", pattern: "*-centrifuge_results.tsv", mode: 'copy'
+  publishDir "${params.outdir}/centrifuge/reports", pattern: "*-centrifuge_kreport.tsv", mode: 'copy'
 
   input:
     tuple db_name, 
@@ -328,41 +329,15 @@ process CENTRIFUGE {
           path(reads1),
           path(reads2),
           path(results),
-          path(report)
-
-  script:
-  results = "${sample_id}-centrifuge_results.tsv"
-  report = "${sample_id}-report.tsv"
-  """
-  centrifuge -x ${centrifuge_db_dir}/${db_name} \\
-    -1 $reads1 -2 $reads2 \\
-    -S $results --report-file $report \\
-    --mm
-  """
-}
-
-process CENTRIFUGE_KRAKEN_REPORT {
-  tag "$sample_id"
-  publishDir "${params.outdir}/centrifuge", pattern: "*-kreport.tsv", mode: 'copy'
-
-  input:
-    tuple db_name, 
-          path(centrifuge_db_dir)
-    tuple sample_id,
-          path(reads1),
-          path(reads2),
-          path(results),
-          path(report)
-  output:
-    tuple sample_id,
-          path(reads1),
-          path(reads2),
-          path(results),
           path(kreport)
 
   script:
-  kreport = "${sample_id}-kreport.tsv"
+  results = "${sample_id}-centrifuge_results.tsv"
+  kreport = "${sample_id}-centrifuge_kreport.tsv"
   """
+  centrifuge -x ${centrifuge_db_dir}/${db_name} \\
+    -1 $reads1 -2 $reads2 \\
+    -S $results --mm
   centrifuge-kreport -x ${centrifuge_db_dir}/${db_name} $results > $kreport
   """
 }
@@ -393,7 +368,7 @@ process FILTER_READS_BY_CLASSIFICATIONS {
     -o $filtered_reads1 -O $filtered_reads2 \\
     -c $centrifuge_results -C $centrifuge_report \\
     -k $kraken2_results -K $kraken2_report \\
-    --taxids $params.taxids $exclude_unclassified_reads
+    --taxids ${params.taxids} $exclude_unclassified_reads
   """
 }
 
@@ -488,11 +463,10 @@ workflow {
     cdb = file(params.centrifuge_db)
     ch_centrifuge_db = Channel.value([cdb.getName(), cdb.getParent()])
     CENTRIFUGE(ch_centrifuge_db, FASTP.out.reads)
-    CENTRIFUGE_KRAKEN_REPORT(ch_centrifuge_db, CENTRIFUGE.out)
   }
   if (params.kraken2_db && params.centrifuge_db && taxids) {
     ch_kraken2_and_centrifuge_results = KRAKEN2.out
-      .join(CENTRIFUGE_KRAKEN_REPORT.out, remainder: true)
+      .join(CENTRIFUGE.out, remainder: true)
       .map { sample_id, r1, r2, kraken2_results, kraken2_report, _r1, _r2, centrifuge_results, centrifuge_kreport -> 
         [sample_id, r1, r2, kraken2_results, kraken2_report, centrifuge_results, centrifuge_kreport]
       }
