@@ -74,12 +74,18 @@ def helpMessage() {
                                   classification filtered reads (default: false)
 
   ${c_bul}BLAST Options:${c_reset}
-    --blast_db        Nucleotide BLAST
+    --blastn_db        Nucleotide BLAST database (e.g. /opt/DB/blast/nt if NCBI nt DB downloaded to /opt/DB/blast/)
+    --blastn_taxids    File containing taxids to restrict nucleotide BLAST search (default: ${params.blastn_taxids}).
+                       If you do not want to restrict the BLAST search, set this parameter to ${c_yellow}--blastn_taxids ''${c_reset}
 
   ${c_bul}De Novo Assembly Options:${c_reset}
     --unicycler_mode  Unicycler assembly mode (default: ${params.unicycler_mode})
     --shovill_trim    Trim reads with Trimmomatic as part of Shovill assembly
                       (default: ${params.shovill_trim})
+    --megahit_preset  Megahit paramaters preset. Possible values:
+                      meta-sensitive: '--min-count 1 --k-list 21,29,39,49,...,129,141'
+                      meta-large: '--k-min 27 --k-max 127 --k-step 10'
+                      (large & complex metagenomes, like soil)
 
   ${c_bul}Cluster Options:${c_reset}
     --slurm_queue     Name of SLURM queue to run workflow on; use with ${c_dim}-profile slurm${c_reset}
@@ -102,9 +108,9 @@ if (params.help){
   exit 0
 }
 
-if (workflow.profile == 'slurm' && params.slurm_queue == "") {
-  exit 1, "You must specify a valid SLURM queue (e.g. '--slurm_queue <queue name>' (see `\$ sinfo` output for available queues)) to run this workflow with the 'slurm' profile!"
-}
+//=============================================================================
+// HELPER FUNCTIONS
+//=============================================================================
 
 def check_centrifuge_db(centrifuge_db) {
   file_centrifuge_db = file(centrifuge_db)
@@ -115,8 +121,9 @@ def check_centrifuge_db(centrifuge_db) {
   }
   any_valid = false
   centrifuge_dir.eachFile { f ->
+    println "CENTRIFUGE FILE: $f"
     if ( f.isFile() ) {
-      if ( f.getName() =~ /^$prefix/ && f.getExtension() == 'cf') {
+      if ( f.getName().startsWith(prefix) && f.getExtension() == 'cf') {
         any_valid = true
       }
     }
@@ -134,6 +141,47 @@ def check_kraken2_db(kraken2_db) {
   if ( !kraken2_db_dir.exists() ) {
     exit 1, "The Kraken2 DB must be an existing directory! '$kraken2_db' does not exist!"
   }
+}
+
+def check_blastn_db(blastn_db) {
+  if (blastn_db instanceof Boolean) {
+    log.warn "--blastn_db not specified! Not running nucleotide BLAST on contigs!"
+    return null
+  }
+  file_blastn_db = file(blastn_db)
+  prefix = file_blastn_db.getName()
+  db_dir = file_blastn_db.getParent()
+  if ( !db_dir.isDirectory() || !db_dir.exists() ) {
+    exit 1, "BLASTN DB directory does not exist at '${db_dir}'! Please specify a valid path to a BLAST DB."
+  }
+  any_valid = false
+  nucl_db_extensions = ['nni', 'nhr', 'nin', 'nnd', 'nog', 'nsq'] as Set
+  db_dir.eachFile { f -> 
+    if ( f.isFile() ) {
+      if ( f.getName().startsWith(prefix) && f.getExtension() in nucl_db_extensions) {
+        any_valid = true
+      }
+    }
+  }
+  if ( !any_valid ) {
+    exit 1, "Could not find valid nucleotide BLAST DB at '$blastn_db'. Please verify that this DB has files with extensions: $nucl_db_extensions"
+  }
+  return blastn_db
+}
+
+
+def check_megahit_preset(megahit_preset) {
+  valid_presets = ['meta-sensitive', 'meta-large']
+  if (megahit_preset instanceof Boolean) {
+    return ''
+  }
+  if (megahit_preset instanceof String) {
+    if (megahit_preset in valid_presets) {
+      return megahit_preset
+    }
+  }
+  log.warn "Invalid megahit_preset specified '${megahit_preset}'. Must be one of ${valid_presets}"
+  return ''
 }
 
 // Check that all taxids are integers delimited by commas
@@ -154,9 +202,56 @@ def check_taxids(taxids) {
   }
 }
 
+// Get taxidlist for user-specified taxids
+def taxidlist(taxids) {
+  if (taxids instanceof String && file(taxids).exists()) {
+    return file(taxids)
+  }
+  emptyFile = "EMPTY"
+  if (taxids instanceof Boolean || taxids.toString().isEmpty()) {
+    return emptyFile
+  }
+  l = taxids.toString()
+                .split(',')
+                .collect { it.strip() }
+                .findAll { it != '' }
+  if (l.size() == 0) {
+    return emptyFile
+  }
+  if (l.size() == 1) {
+    taxid = l[0].toInteger()
+    if (taxid == 10239) {
+      return file("$baseDir/data/Viruses-10239.taxidlist")
+    } else if (taxid == 2) {
+      return file("$baseDir/data/Bacteria-2.taxidlist")
+    } else {
+      return emptyFile
+    }
+  } else {
+    return emptyFile
+  }
+}
+
+//=============================================================================
+// INPUT VALIDATION
+//=============================================================================
+
+if (workflow.profile == 'slurm' && params.slurm_queue == "") {
+  exit 1, "You must specify a valid SLURM queue (e.g. '--slurm_queue <queue name>' (see `\$ sinfo` output for available queues)) to run this workflow with the 'slurm' profile!"
+}
+
 taxids = check_taxids(params.taxids)
+blastn_taxidlist = taxidlist(params.blastn_taxids)
+megahit_preset = check_megahit_preset(params.megahit_preset)
 if (params.centrifuge_db) check_centrifuge_db(params.centrifuge_db)
 if (params.kraken2_db) check_kraken2_db(params.kraken2_db)
+blastn_db = (params.blastn_db != null) ? check_blastn_db(params.blastn_db) : null
+
+
+
+//=============================================================================
+// WORKFLOW RUN PARAMETERS LOGGING
+//=============================================================================
 
 // Has the run name been specified by the user?
 //  this has the bonus effect of catching both -name and --name
@@ -184,6 +279,9 @@ if(taxids && params.centrifuge_db && params.kraken2_db) {
 summary['Output unclassified reads?'] = !(params.exclude_unclassified_reads as Boolean)
 summary['Unicycler Mode']   = params.unicycler_mode
 summary['Shovill Trim?']    = params.shovill_trim as Boolean
+summary['Megahit Preset']   = megahit_preset
+summary['BLASTN DB']        = blastn_db
+summary['BLASTN taxidlist'] = blastn_taxidlist
 summary['Max Memory']       = params.max_memory
 summary['Max CPUs']         = params.max_cpus
 summary['Max Time']         = params.max_time
@@ -206,6 +304,9 @@ if (params.container == null && (workflow.container ==~ /.*null/)) {
   exit 1, "Container null!"
 }
 
+//=============================================================================
+// PROCESSES
+//=============================================================================
 
 // Remove any Coliphage phi-X174 reads using bbduk
 process REMOVE_PHIX {
@@ -306,7 +407,7 @@ process KRAKEN2 {
   report = "${sample_id}-kraken2_report.tsv"
   """
   kraken2 --memory-mapping --threads ${task.cpus} \\
-    --db ${kraken2_db_dir} \\
+    --db ./${kraken2_db_dir}/ \\
     --output ${results} \\
     --report ${report} \\
     $reads1 $reads2
@@ -422,6 +523,61 @@ process SHOVILL_ASSEMBLY {
   """
 }
 
+process MEGAHIT_ASSEMBLY {
+  publishDir "${params.outdir}/assemblies/megahit/$sample_id", mode: 'copy'
+
+  input:
+    tuple val(sample_id), path(reads1), path(reads2)
+  output:
+    tuple sample_id, val('megahit'), path(output_contigs, optional: true), emit: 'contigs'
+    tuple sample_id, path(output_log, optional: true), emit: 'log'
+
+  script:
+  output_contigs = "${sample_id}-contigs.fasta"
+  output_log = "${sample_id}-megahit.log"
+  megahit_preset = (params.megahit_preset.toString() == '') ? '' : "--presets ${params.megahit_preset}"
+  """
+  megahit \\
+    -t ${task.cpus} \\
+    -m ${task.memory.toBytes()} \\
+    $megahit_preset \\
+    -1 $reads1 \\
+    -2 $reads2 \\
+    -o out \\
+    --out-prefix out
+  ln -s out/out.contigs.fa $output_contigs
+  ln -s out/out.log $output_log
+  """
+}
+
+
+process BLASTN {
+  publishDir "${params.outdir}/blastn/$assembler", pattern: "*.tsv", mode: 'copy'
+  tag "$sample_id|$dbname|$assembler|$txids"
+
+  input:
+    tuple dbname, path(dbdir)
+    path(txids)
+    tuple val(sample_id), val(assembler), path(contigs)
+  output:
+    tuple val(sample_id), val(assembler), path(contigs), path(blast_out)
+
+  script:
+  taxidlist_opt = (taxids == 'EMPTY') ? '' : "-taxidlist $txids"
+  blast_out = "blastn-${sample_id}-VS-${dbname}.tsv"
+  blast_tab_columns = "qaccver saccver pident length mismatch gapopen qstart qend sstart send evalue bitscore qlen slen stitle staxid ssciname"
+  """
+  blastn $taxidlist_opt \\
+    -num_threads ${task.cpus} \\
+    -db $dbdir/$dbname \\
+    -query $contigs \\
+    -outfmt "6 $blast_tab_columns" \\
+    -evalue 1e-6 \\
+    -out $blast_out
+  """
+}
+
+
 process MULTIQC {
     publishDir params.outdir, mode:'copy'
 
@@ -440,7 +596,9 @@ process MULTIQC {
     """
 }
 
-
+//=============================================================================
+// WORKFLOW DEFINITION
+//=============================================================================
 workflow {
   // Create channel for paired end reads
   ch_reads = Channel.fromFilePairs(
@@ -472,13 +630,27 @@ workflow {
       }
     ch_kraken2_and_centrifuge_results \
       | FILTER_READS_BY_CLASSIFICATIONS \
-      | (UNICYCLER_ASSEMBLY & SHOVILL_ASSEMBLY)
+      | (UNICYCLER_ASSEMBLY & SHOVILL_ASSEMBLY & MEGAHIT_ASSEMBLY)
   } else {
-    FASTP.out.reads | (UNICYCLER_ASSEMBLY & SHOVILL_ASSEMBLY)
+    FASTP.out.reads | (UNICYCLER_ASSEMBLY & SHOVILL_ASSEMBLY & MEGAHIT_ASSEMBLY)
   }
 
+  // Run BLASTN if valid BLAST DB specified
+  if (blastn_db != null) {
+    // BLASTN input channels
+    file_blastn_db = file(blastn_db)
+    ch_blastdb = Channel.value( [file_blastn_db.getName(), file_blastn_db.getParent()] )
+    ch_taxidlist = Channel.value( blastn_taxidlist )
+    ch_contigs = UNICYCLER_ASSEMBLY.out.contigs
+      .mix(SHOVILL_ASSEMBLY.out.contigs, MEGAHIT_ASSEMBLY.out.contigs)
 
+    BLASTN(ch_blastdb, ch_taxidlist, ch_contigs)
+  }
 }
+
+//=============================================================================
+// WORKFLOW EVENT HANDLERS
+//=============================================================================
 workflow.onComplete {
     println """
     Pipeline execution summary
@@ -492,6 +664,7 @@ workflow.onComplete {
     Error report : ${workflow.errorReport ?: '-'}
     """.stripIndent()
 }
+
 workflow.onError {
     println "Oops... Pipeline execution stopped with the following message: ${workflow.errorMessage}"
 }
