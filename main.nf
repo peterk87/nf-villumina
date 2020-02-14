@@ -64,6 +64,12 @@ def helpMessage() {
                       try to get from \$KRAKEN2_DB env variable or see if
                       "/opt/DB/kraken2/standard2" exists.
                       (default: ${c_purple}${params.kraken2_db}${c_reset})
+    --centrifuge_memory_mapping   Use memory-mapped I/O to load the index, 
+                                  rather than typical file I/O. Memory-mapping 
+                                  allows many concurrent Centrifuge processes on
+                                  the same computer to share the same memory
+                                  image of the index (i.e. you pay the memory 
+                                  overhead just once).
     --taxids          Taxonomic IDs to filter reads by. Multiple taxids should
                       be delimited by commas (`--taxids 1,2,3`). To disable 
                       filtering of reads based on taxids, do not provide a
@@ -207,7 +213,7 @@ def taxidlist(taxids) {
   if (taxids instanceof String && file(taxids).exists()) {
     return file(taxids)
   }
-  emptyFile = "EMPTY"
+  emptyFile = "$baseDir/data/DUMMY"
   if (taxids instanceof Boolean || taxids.toString().isEmpty()) {
     return emptyFile
   }
@@ -435,17 +441,18 @@ process CENTRIFUGE {
   script:
   results = "${sample_id}-centrifuge_results.tsv"
   kreport = "${sample_id}-centrifuge_kreport.tsv"
+  memory_mapping = (params.centrifuge_memory_mapping) ? '--mm' : ''
   """
   centrifuge -x ${centrifuge_db_dir}/${db_name} \\
     -1 $reads1 -2 $reads2 \\
-    -S $results --mm
+    -S $results $memory_mapping
   centrifuge-kreport -x ${centrifuge_db_dir}/${db_name} $results > $kreport
   """
 }
 
 process FILTER_READS_BY_CLASSIFICATIONS {
   tag "$sample_id"
-  publishDir "${params.outdir}/filtered_reads/", pattern: "*.viral_unclassified.fastq", mode: 'copy'
+  publishDir "${params.outdir}/filtered_reads/", pattern: "*.fq.gz", mode: 'copy'
 
   input:
     tuple sample_id,
@@ -461,8 +468,8 @@ process FILTER_READS_BY_CLASSIFICATIONS {
           path(filtered_reads2) optional true
 
   script:
-  filtered_reads1 = "${sample_id}_1.viral_unclassified.fastq"
-  filtered_reads2 = "${sample_id}_2.viral_unclassified.fastq"
+  filtered_reads1 = "${sample_id}_1.fq"
+  filtered_reads2 = "${sample_id}_2.fq"
   exclude_unclassified_reads = (params.exclude_unclassified_reads) ? '--exclude-unclassified' : ''
   """
   filter_classified_reads -i $reads1 -I $reads2 \\
@@ -470,6 +477,8 @@ process FILTER_READS_BY_CLASSIFICATIONS {
     -c $centrifuge_results -C $centrifuge_report \\
     -k $kraken2_results -K $kraken2_report \\
     --taxids ${params.taxids} $exclude_unclassified_reads
+  pigz -9 $filtered_reads1
+  pigz -9 $filtered_reads2
   """
 }
 
@@ -563,7 +572,7 @@ process BLASTN {
     tuple val(sample_id), val(assembler), path(contigs), path(blast_out)
 
   script:
-  taxidlist_opt = (taxids == 'EMPTY') ? '' : "-taxidlist $txids"
+  taxidlist_opt = (txids == 'EMPTY') ? '' : "-taxidlist $txids"
   blast_out = "blastn-${sample_id}-VS-${dbname}.tsv"
   blast_tab_columns = "qaccver saccver pident length mismatch gapopen qstart qend sstart send evalue bitscore qlen slen stitle staxid ssciname"
   """
@@ -572,7 +581,7 @@ process BLASTN {
     -db $dbdir/$dbname \\
     -query $contigs \\
     -outfmt "6 $blast_tab_columns" \\
-    -evalue 1e-6 \\
+    -evalue 1e-10 \\
     -out $blast_out
   """
 }

@@ -1,4 +1,4 @@
-name: nf-villumina-2.0.0
+name: nf-villumina-2.1.0
 channels:
   - conda-forge
   - bioconda
@@ -19,12 +19,14 @@ dependencies:
   - skesa=2.3.0=he1c1bb9_2
   - seqtk=1.3
   - shovill=1.0.9
+  - snippy
   - spades=3.14.0=h2d02072_0
   - unicycler=0.4.7=py36hdbcaa40_0
   - python
   - pip
   - pip:
     - filter_classified_reads>=0.2.0
+    - blast2xl>=0.2.0
     - biopython
     - click
     - attrs
