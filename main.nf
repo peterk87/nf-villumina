@@ -445,7 +445,7 @@ process CENTRIFUGE {
 
 process FILTER_READS_BY_CLASSIFICATIONS {
   tag "$sample_id"
-  publishDir "${params.outdir}/filtered_reads/", pattern: "*.viral_unclassified.fastq", mode: 'copy'
+  publishDir "${params.outdir}/filtered_reads/", pattern: "*.filtered.fastq.gz", mode: 'copy'
 
   input:
     tuple sample_id,
@@ -461,8 +461,8 @@ process FILTER_READS_BY_CLASSIFICATIONS {
           path(filtered_reads2) optional true
 
   script:
-  filtered_reads1 = "${sample_id}_1.viral_unclassified.fastq"
-  filtered_reads2 = "${sample_id}_2.viral_unclassified.fastq"
+  filtered_reads1 = "${sample_id}_1.filtered.fastq.gz"
+  filtered_reads2 = "${sample_id}_2.filtered.fastq.gz"
   exclude_unclassified_reads = (params.exclude_unclassified_reads) ? '--exclude-unclassified' : ''
   """
   filter_classified_reads -i $reads1 -I $reads2 \\
