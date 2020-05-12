@@ -438,7 +438,7 @@ process CENTRIFUGE {
   """
   centrifuge -x ${centrifuge_db_dir}/${db_name} \\
     -1 $reads1 -2 $reads2 \\
-    -S $results --mm
+    -S $results -p ${task.cpus} 
   centrifuge-kreport -x ${centrifuge_db_dir}/${db_name} $results > $kreport
   """
 }
