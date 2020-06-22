@@ -418,6 +418,15 @@ process CENTRIFUGE {
   tag "$sample_id"
   publishDir "${params.outdir}/centrifuge/results", pattern: "*-centrifuge_results.tsv", mode: 'copy'
   publishDir "${params.outdir}/centrifuge/reports", pattern: "*-centrifuge_kreport.tsv", mode: 'copy'
+  // Memory usage as 125% of sum size of all cf index files for index multiplied
+  memory {
+    file_sizes = file(centrifuge_db_dir).listFiles()
+      .findAll { it.isFile() && file(it).getExtension() == 'cf' }
+      .collect { it.size() }
+      .inject(0, { r, i -> r + i })
+      .toLong()
+    (file_sizes * 1.25).toLong()
+  }
 
   input:
     tuple db_name, 
