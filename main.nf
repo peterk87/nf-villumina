@@ -77,6 +77,7 @@ def helpMessage() {
     --blastn_db        Nucleotide BLAST database (e.g. /opt/DB/blast/nt if NCBI nt DB downloaded to /opt/DB/blast/)
     --blastn_taxids    File containing taxids to restrict nucleotide BLAST search (default: ${params.blastn_taxids}).
                        If you do not want to restrict the BLAST search, set this parameter to ${c_yellow}--blastn_taxids ''${c_reset}
+    --blastn_qcov_hsp_perc  BLASTN query HSP percent coverage threshold (default: ${params.blastn_qcov_hsp_perc})
 
   ${c_bul}De Novo Assembly Options:${c_reset}
     --unicycler_mode  Unicycler assembly mode (default: ${params.unicycler_mode})
@@ -282,6 +283,7 @@ summary['Shovill Trim?']    = params.shovill_trim as Boolean
 summary['Megahit Preset']   = megahit_preset
 summary['BLASTN DB']        = blastn_db
 summary['BLASTN taxidlist'] = blastn_taxidlist
+if(params.blastn_qcov_hsp_perc != null) summary['BLASTN Q HSP %Cov'] = params.blastn_qcov_hsp_perc 
 summary['Max Memory']       = params.max_memory
 summary['Max CPUs']         = params.max_cpus
 summary['Max Time']         = params.max_time
@@ -573,10 +575,11 @@ process BLASTN {
 
   script:
   taxidlist_opt = (taxids == 'EMPTY') ? '' : "-taxidlist $txids"
+  blastn_qcov_hsp_perc = (params.blastn_qcov_hsp_perc == null) ? '' : '-qcov_hsp_perc ${params.blastn_qcov_hsp_perc}'
   blast_out = "blastn-${sample_id}-VS-${dbname}.tsv"
   blast_tab_columns = "qaccver saccver pident length mismatch gapopen qstart qend sstart send evalue bitscore qlen slen stitle staxid ssciname"
   """
-  blastn $taxidlist_opt \\
+  blastn $taxidlist_opt $blastn_qcov_hsp_perc \\
     -num_threads ${task.cpus} \\
     -db $dbdir/$dbname \\
     -query $contigs \\
