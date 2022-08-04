@@ -1,6 +1,6 @@
 #!/usr/bin/env nextflow
 
-nextflow.preview.dsl=2
+nextflow.enable.dsl=2
 
 def helpMessage() {
     // Log colors ANSI codes
@@ -316,10 +316,10 @@ process REMOVE_PHIX {
   
   input:
     file phix
-    tuple sample_id, path(reads1), path(reads2)
+    tuple val(sample_id), path(reads1), path(reads2)
   output:
-    tuple sample_id, path(reads_out1), path(reads_out2), emit: 'reads'
-    tuple sample_id, path(stats), emit: 'stats'
+    tuple val(sample_id), path(reads_out1), path(reads_out2), emit: 'reads'
+    tuple val(sample_id), path(stats), emit: 'stats'
 
   script:
   reads_out1 = "${sample_id}_1.phix_removed.fastq.gz"
@@ -345,10 +345,10 @@ process FASTP {
   publishDir "${params.outdir}/reads/fastp", pattern: "*.fastp.fastq.gz"
 
   input:
-    tuple sample_id, path(r1), path(r2)
+    tuple val(sample_id), path(r1), path(r2)
   output:
-    tuple sample_id, path(reads_out1), path(reads_out2), emit: 'reads'
-    tuple sample_id, path(html_report), path(json_report), emit: 'report'
+    tuple val(sample_id), path(reads_out1), path(reads_out2), emit: 'reads'
+    tuple val(sample_id), path(html_report), path(json_report), emit: 'report'
 
   script:
   reads_out1 = "${sample_id}_1.fastp.fastq.gz"
@@ -392,11 +392,11 @@ process KRAKEN2 {
 
   input:
     path(kraken2_db_dir)
-    tuple sample_id,
+    tuple val(sample_id),
           path(reads1),
           path(reads2)
   output:
-    tuple sample_id,
+    tuple val(sample_id),
           path(reads1),
           path(reads2),
           path(results),
@@ -429,13 +429,13 @@ process CENTRIFUGE {
   }
 
   input:
-    tuple db_name, 
+    tuple val(db_name), 
           path(centrifuge_db_dir)
-    tuple sample_id,
+    tuple val(sample_id),
           path(reads1),
           path(reads2)
   output:
-    tuple sample_id,
+    tuple val(sample_id),
           path(reads1),
           path(reads2),
           path(results),
@@ -457,7 +457,7 @@ process FILTER_READS_BY_CLASSIFICATIONS {
   publishDir "${params.outdir}/filtered_reads/", pattern: "*.filtered.fastq.gz", mode: 'copy'
 
   input:
-    tuple sample_id,
+    tuple val(sample_id),
           path(reads1),
           path(reads2),
           path(kraken2_results),
@@ -465,7 +465,7 @@ process FILTER_READS_BY_CLASSIFICATIONS {
           path(centrifuge_results),
           path(centrifuge_report)
   output:
-    tuple sample_id,
+    tuple val(sample_id),
           path(filtered_reads1),
           path(filtered_reads2) optional true
 
@@ -489,9 +489,9 @@ process UNICYCLER_ASSEMBLY {
   input:
     tuple(val(sample_id), path(reads1), path(reads2))
   output:
-    tuple sample_id, val('unicycler'), path(output_contigs, optional: true), emit: 'contigs'
-    tuple sample_id, path(output_unicycler_log, optional: true), emit: 'log'
-    tuple sample_id, path(output_gfa, optional: true), emit: 'gfa'
+    tuple val(sample_id), val('unicycler'), path(output_contigs, optional: true), emit: 'contigs'
+    tuple val(sample_id), path(output_unicycler_log, optional: true), emit: 'log'
+    tuple val(sample_id), path(output_gfa, optional: true), emit: 'gfa'
 
   script:
   output_contigs = "${sample_id}-assembly.fasta"
@@ -512,9 +512,9 @@ process SHOVILL_ASSEMBLY {
   input:
     tuple val(sample_id), path(reads1), path(reads2)
   output:
-    tuple sample_id, val('shovill'), path(output_contigs, optional: true), emit: 'contigs'
-    tuple sample_id, path(output_shovill_log, optional: true), emit: 'log'
-    tuple sample_id, path(output_gfa, optional: true), emit: 'gfa'
+    tuple val(sample_id), val('shovill'), path(output_contigs, optional: true), emit: 'contigs'
+    tuple val(sample_id), path(output_shovill_log, optional: true), emit: 'log'
+    tuple val(sample_id), path(output_gfa, optional: true), emit: 'gfa'
 
   script:
   output_contigs = "${sample_id}-contigs.fasta"
@@ -538,8 +538,8 @@ process MEGAHIT_ASSEMBLY {
   input:
     tuple val(sample_id), path(reads1), path(reads2)
   output:
-    tuple sample_id, val('megahit'), path(output_contigs, optional: true), emit: 'contigs'
-    tuple sample_id, path(output_log, optional: true), emit: 'log'
+    tuple val(sample_id), val('megahit'), path(output_contigs, optional: true), emit: 'contigs'
+    tuple val(sample_id), path(output_log, optional: true), emit: 'log'
 
   script:
   output_contigs = "${sample_id}-contigs.fasta"
@@ -565,7 +565,7 @@ process BLASTN {
   tag "$sample_id|$dbname|$assembler|$txids"
 
   input:
-    tuple dbname, path(dbdir)
+    tuple val(dbname), path(dbdir)
     path(txids)
     tuple val(sample_id), val(assembler), path(contigs)
   output:
@@ -620,16 +620,20 @@ workflow {
   // Value channel with file containing phix sequence from workflow data folder
   ch_phix = Channel.value(file("$baseDir/data/phix.fa"))
   REMOVE_PHIX(ch_phix, ch_reads)
-  FASTP(REMOVE_PHIX.out.reads)
-  fastqc_reports = FASTQC(FASTP.out.reads)
+  ch_qced_reads = REMOVE_PHIX.out.reads
+  if (!params.skip_fastp) {
+    FASTP(REMOVE_PHIX.out.reads)
+    ch_qced_reads = FASTP.out.reads
+  }
+  fastqc_reports = FASTQC(ch_qced_reads)
 
   if (params.kraken2_db) {
-    KRAKEN2(Channel.value(file(params.kraken2_db)), FASTP.out.reads)
+    KRAKEN2(Channel.value(file(params.kraken2_db)), ch_qced_reads)
   }
   if (params.centrifuge_db) {
     cdb = file(params.centrifuge_db)
     ch_centrifuge_db = Channel.value([cdb.getName(), cdb.getParent()])
-    CENTRIFUGE(ch_centrifuge_db, FASTP.out.reads)
+    CENTRIFUGE(ch_centrifuge_db, ch_qced_reads)
   }
   if (params.kraken2_db && params.centrifuge_db && taxids) {
     ch_kraken2_and_centrifuge_results = KRAKEN2.out
@@ -641,7 +645,7 @@ workflow {
       | FILTER_READS_BY_CLASSIFICATIONS \
       | (UNICYCLER_ASSEMBLY & SHOVILL_ASSEMBLY & MEGAHIT_ASSEMBLY)
   } else {
-    FASTP.out.reads | (UNICYCLER_ASSEMBLY & SHOVILL_ASSEMBLY & MEGAHIT_ASSEMBLY)
+    ch_qced_reads | (UNICYCLER_ASSEMBLY & SHOVILL_ASSEMBLY & MEGAHIT_ASSEMBLY)
   }
 
   // Run BLASTN if valid BLAST DB specified
